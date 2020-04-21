@@ -11,10 +11,21 @@ import com.microsoft.azure.documentdb.DocumentClientException;
 import com.microsoft.azure.documentdb.FeedResponse;
 import com.microsoft.azure.documentdb.PartitionKey;
 import com.microsoft.azure.documentdb.RequestOptions;
+import com.microsoft.azure.documentdb.StoredProcedure;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.stream.Collectors;
 
 public class App {
   private static String host;
   private static String masterKey;
+  private static String database;
+  private static String container;
+  private static String storedProcedureDir;
   private static DocumentClient client;
 
   public static void main(String[] args) {
@@ -23,52 +34,74 @@ public class App {
         host = args[++i];
       } else if ("-k".equals(args[i])) {
         masterKey = args[++i];
+      } else if ("-d".equals(args[i])) {
+        database = args[++i];
+      } else if ("-c".equals(args[i])) {
+        container = args[++i];
+      } else if ("-sp".equals(args[i])) {
+        storedProcedureDir = args[++i];
       }
     }
     System.out.println("Connecting to Cosmos DB...");
     client = getClient();
 
+    System.out.println("Register stored procedures...");
+    registerStoredProceduers();
+
     Record rec = new Record("0", "0");
     rec.withValue("v1", 100);
     rec.withValue("v2", 200);
-
     insert(rec);
 
-    // rec = new Record("1", "0");
-    // rec.withValue("v1", 101);
-    // rec.withValue("v2", 202);
+    get("0");
 
-    // insert(rec);
+    rec = new Record("0", "1");
+    rec.withValue("v1", 101);
+    rec.withValue("v2", 202);
+    insert(rec);
 
-    // rec = new Record("2", "0");
-    // rec.withValue("v1", 110);
-    // rec.withValue("v2", 220);
-
-    // insert(rec);
-
-    System.out.println("Query a record from Cosmos DB...");
-    FeedResponse<Document> queryResults =
-        client.queryDocuments(
-            "/dbs/SampleDB/colls/SampleContainer",
-            "SELECT r.key1, r.key2, r.values FROM Record r WHERE r.key1 = '0'",
-            null);
-
-    System.out.println("Running SQL query...");
-    for (Document doc : queryResults.getQueryIterable()) {
-      System.out.println(String.format("\tRead %s", doc));
-    }
+    get("0");
 
     rec = new Record("0", "0");
     rec.withValue("v1", 111);
     rec.withValue("v2", 222);
-    insertIfNotExists(rec);
+    insertIfNotExists(rec); // this will fail
 
     rec = new Record("1", "0");
+    rec.withValue("v1", 100);
+    rec.withValue("v2", 200);
+    insertIfNotExists(rec);
+
+    rec = new Record("1", "1");
     rec.withValue("v1", 111);
     rec.withValue("v2", 222);
     insertIfNotExists(rec);
 
+    get("0");
+    get("1");
+
+    rec = new Record("0", "2");
+    rec.withValue("v1", 111);
+    rec.withValue("v2", 222);
+    updateIfExists(rec); // this will fail
+
+    rec = new Record("0", "0");
+    rec.withValue("v1", 1111);
+    rec.withValue("v2", 2222);
+    updateIfExists(rec);
+
+    get("0");
+    get("1");
+
     client.close();
+  }
+
+  private static String getDatabaseLink() {
+    return String.format("/dbs/%s", database);
+  }
+
+  private static String getContainerLink() {
+    return String.format("%s/colls/%s", getDatabaseLink(), container);
   }
 
   private static DocumentClient getClient() {
@@ -76,18 +109,68 @@ public class App {
         host, masterKey, ConnectionPolicy.GetDefault(), ConsistencyLevel.Strong);
   }
 
+  private static void registerStoredProceduers() {
+    try {
+      Files.list(Paths.get(storedProcedureDir))
+          .forEach(
+              p -> {
+                String name = p.toFile().getName();
+                try {
+                  if (isRegistered(name)) {
+                    return;
+                  }
+
+                  StoredProcedure sp = makeStoredProcedure(name, p);
+
+                  client.createStoredProcedure(getContainerLink(), sp, new RequestOptions());
+                } catch (DocumentClientException e) {
+                  throw new RuntimeException("Failed to register stored procedures", e);
+                }
+              });
+    } catch (IOException e) {
+      throw new RuntimeException("The directory is not found", e);
+    }
+  }
+
+  private static boolean isRegistered(String spName) {
+    String sprocLink = String.format("%s/sprocs/%s", getContainerLink(), spName);
+    try {
+      StoredProcedure result = client.readStoredProcedure(sprocLink, null).getResource();
+      return true;
+    } catch (DocumentClientException e) {
+      if (e.getStatusCode() == HttpURLConnection.HTTP_NOT_FOUND) {
+        return false;
+      }
+      throw new RuntimeException("Failed to check a stored procedure", e);
+    }
+  }
+
+  private static StoredProcedure makeStoredProcedure(String spName, Path path) {
+    try {
+      return new StoredProcedure(
+          "{"
+              + "  'id':'"
+              + spName
+              + "',"
+              + "  'body':'"
+              + Files.lines(path, Charset.forName("UTF-8")).collect(Collectors.joining())
+              + "'}");
+    } catch (IOException e) {
+      throw new RuntimeException("Stored procedure is not found", e);
+    }
+  }
+
   private static void insert(Record rec) {
     System.out.println("Inserting a record to Cosmos DB...");
     try {
-      client.createDocument("/dbs/SampleDB/colls/SampleContainer", rec, new RequestOptions(), true);
+      client.createDocument(getContainerLink(), rec, new RequestOptions(), true);
     } catch (DocumentClientException e) {
       System.err.println("Insertion failed");
-      // throw new RuntimeException("Insertion failed", e);
     }
   }
 
   private static void insertIfNotExists(Record rec) {
-    String sprocLink = "/dbs/SampleDB/colls/SampleContainer/sprocs/insertIfNotExists";
+    String sprocLink = String.format("%s/sprocs/putIfNotExists.js", getContainerLink());
 
     RequestOptions requestOptions = new RequestOptions();
     requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
@@ -97,7 +180,31 @@ public class App {
       client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
     } catch (DocumentClientException e) {
       System.err.println("Insertion failed");
-      // throw new RuntimeException("Insertion failed", e);
+    }
+  }
+
+  private static void updateIfExists(Record rec) {
+    String sprocLink = String.format("%s/sprocs/putIfExists.js", getContainerLink());
+
+    RequestOptions requestOptions = new RequestOptions();
+    requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
+
+    System.out.println("Update a record if not exists...");
+    try {
+      client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
+    } catch (DocumentClientException e) {
+      System.err.println("Update failed");
+      System.err.println(e);
+    }
+  }
+
+  private static void get(String key) {
+    String query =
+        String.format("SELECT r.key1, r.key2, r.values FROM Record r WHERE r.key1 = '%s'", key);
+    FeedResponse<Document> results = client.queryDocuments(getContainerLink(), query, null);
+
+    for (Document doc : results.getQueryIterable()) {
+      System.out.println(String.format("\tRead %s", doc));
     }
   }
 }
