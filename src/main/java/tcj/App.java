@@ -1,16 +1,13 @@
 package tcj;
 
-import com.microsoft.azure.documentdb.DocumentClient;
-
 public class App {
-  private static String host;
-  private static String masterKey;
-  private static String database;
-  private static String container;
-  private static String storedProcedureDir;
-  private static DocumentClient client;
-
   public static void main(String[] args) {
+    String host = "localhost";
+    String masterKey = "password";
+    String database = "database";
+    String container = "container";
+    String storedProcedureDir = "/path/to/stored-procedure";
+
     for (int i = 0; i < args.length; ++i) {
       if ("-h".equals(args[i])) {
         host = args[++i];
