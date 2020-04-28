@@ -1,12 +1,16 @@
 package tcj;
 
+import com.microsoft.azure.documentdb.DocumentClientException;
+
 public class App {
+  private static final int NUM_RECORDS = 10000;
+  private static String host = "localhost";
+  private static String masterKey = "password";
+  private static String database = "database";
+  private static String container = "container";
+  private static String storedProcedureDir = "/path/to/stored-procedure";
+
   public static void main(String[] args) {
-    String host = "localhost";
-    String masterKey = "password";
-    String database = "database";
-    String container = "container";
-    String storedProcedureDir = "/path/to/stored-procedure";
 
     for (int i = 0; i < args.length; ++i) {
       if ("-h".equals(args[i])) {
@@ -23,56 +27,95 @@ public class App {
     }
 
     try (Storage storage = new Storage(host, masterKey)) {
+      // Preparation
       storage.with(database, container);
-
       System.out.println("Register stored procedures...");
       StoredProcedureHandler spHandler = new StoredProcedureHandler(storage);
       spHandler.registerAll(storedProcedureDir);
 
-      Record rec = new Record("0", "0");
-      rec.withValue("v1", 100);
-      rec.withValue("v2", 200);
-      storage.insert(rec);
+      //smallTest(storage);
 
-      storage.get("0");
-
-      rec = new Record("0", "1");
-      rec.withValue("v1", 101);
-      rec.withValue("v2", 202);
-      storage.insert(rec);
-
-      storage.get("0");
-
-      rec = new Record("0", "0");
-      rec.withValue("v1", 111);
-      rec.withValue("v2", 222);
-      storage.insertIfNotExists(rec); // this will fail
-
-      rec = new Record("1", "0");
-      rec.withValue("v1", 100);
-      rec.withValue("v2", 200);
-      storage.insertIfNotExists(rec);
-
-      rec = new Record("1", "1");
-      rec.withValue("v1", 111);
-      rec.withValue("v2", 222);
-      storage.insertIfNotExists(rec);
-
-      storage.get("0");
-      storage.get("1");
-
-      rec = new Record("0", "2");
-      rec.withValue("v1", 111);
-      rec.withValue("v2", 222);
-      storage.updateIfExists(rec); // this will fail
-
-      rec = new Record("0", "0");
-      rec.withValue("v1", 1111);
-      rec.withValue("v2", 2222);
-      storage.updateIfExists(rec);
-
-      storage.get("0");
-      storage.get("1");
+      Benchmark bench = new Benchmark(storage);
+      bench.runInsertion(100);
+      bench.runInsertionWithStoredProcedure(100);
+      bench.runInsertionIfNotExists(100);
+      bench.runUpdateIfExists(100);
     }
+  }
+
+  private static void smallTest(Storage storage) {
+
+    Record rec = new Record("k0", "0");
+    rec.withValue("v1", 100);
+    rec.withValue("v2", 200);
+    try {
+      storage.insert(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Insertion failed unexpectedly");
+    }
+
+    storage.get("k0");
+
+    rec = new Record("k0", "1");
+    rec.withValue("v1", 101);
+    rec.withValue("v2", 202);
+    try {
+      storage.insert(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Insertion failed unexpectedly");
+    }
+
+    storage.get("k0");
+
+    rec = new Record("k0", "0");
+    rec.withValue("v1", 111);
+    rec.withValue("v2", 222);
+    try {
+      storage.insertIfNotExists(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Insertion failed as expected");
+    }
+
+    rec = new Record("k1", "0");
+    rec.withValue("v1", 100);
+    rec.withValue("v2", 200);
+    try {
+      storage.insertIfNotExists(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Insertion failed unexpectedly");
+    }
+
+    rec = new Record("k1", "1");
+    rec.withValue("v1", 111);
+    rec.withValue("v2", 222);
+    try {
+      storage.insertIfNotExists(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Insertion failed unexpectedly");
+    }
+
+    storage.get("k0");
+    storage.get("k1");
+
+    rec = new Record("k0", "2");
+    rec.withValue("v1", 111);
+    rec.withValue("v2", 222);
+    try {
+      storage.updateIfExists(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Update failed as expected");
+    }
+
+    rec = new Record("k0", "0");
+    rec.withValue("v1", 1111);
+    rec.withValue("v2", 2222);
+    try {
+      storage.updateIfExists(rec);
+    } catch (DocumentClientException e) {
+      System.err.println("Insertion failed unexpectedly");
+    }
+
+    storage.get("k0");
+    storage.get("k1");
   }
 }

@@ -62,40 +62,54 @@ public class Storage implements AutoCloseable {
     return true;
   }
 
-  public void insert(Record rec) {
-    System.out.println("Inserting a record to Cosmos DB...");
+  public void insert(Record rec) throws DocumentClientException {
     try {
       client.createDocument(getContainerLink(), rec, new RequestOptions(), true);
     } catch (DocumentClientException e) {
-      System.err.println("Insertion failed");
+      //System.err.println("Insertion failed");
+      throw e;
     }
   }
 
-  public void insertIfNotExists(Record rec) {
+  public void insertWithStoredProcedure(Record rec) throws DocumentClientException {
+    String sprocLink = String.format("%s/sprocs/putWithoutRead.js", getContainerLink());
+
+    RequestOptions requestOptions = new RequestOptions();
+    requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
+
+    try {
+      client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
+    } catch (DocumentClientException e) {
+      //System.err.println("Insertion failed");
+      throw e;
+    }
+  }
+
+  public void insertIfNotExists(Record rec) throws DocumentClientException {
     String sprocLink = String.format("%s/sprocs/putIfNotExists.js", getContainerLink());
 
     RequestOptions requestOptions = new RequestOptions();
     requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
 
-    System.out.println("Inserting a record if not exists...");
     try {
       client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
     } catch (DocumentClientException e) {
-      System.err.println("Insertion failed");
+      //System.err.println("Insertion failed");
+      throw e;
     }
   }
 
-  public void updateIfExists(Record rec) {
+  public void updateIfExists(Record rec) throws DocumentClientException {
     String sprocLink = String.format("%s/sprocs/putIfExists.js", getContainerLink());
 
     RequestOptions requestOptions = new RequestOptions();
     requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
 
-    System.out.println("Update a record if not exists...");
     try {
       client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
     } catch (DocumentClientException e) {
-      System.err.println("Update failed");
+      //System.err.println("Update failed");
+      throw e;
     }
   }
 
