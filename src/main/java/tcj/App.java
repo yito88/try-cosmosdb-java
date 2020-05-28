@@ -1,6 +1,7 @@
 package tcj;
 
-import com.microsoft.azure.documentdb.DocumentClientException;
+import com.azure.cosmos.CosmosClientException;
+import java.util.UUID;
 
 public class App {
   private static final int NUM_RECORDS = 10000;
@@ -33,86 +34,113 @@ public class App {
       StoredProcedureHandler spHandler = new StoredProcedureHandler(storage);
       spHandler.registerAll(storedProcedureDir);
 
-      //smallTest(storage);
+      System.out.println("Start testing...");
+      smallTest(storage);
 
-      Benchmark bench = new Benchmark(storage);
-      bench.runInsertion(100);
-      bench.runInsertionWithStoredProcedure(100);
-      bench.runInsertionIfNotExists(100);
-      bench.runUpdateIfExists(100);
+      // Benchmark bench = new Benchmark(storage);
+      // bench.runInsertion(100);
+      // bench.runInsertionWithStoredProcedure(100);
+      // bench.runInsertionIfNotExists(100);
+      // bench.runUpdateIfExists(100);
     }
   }
 
   private static void smallTest(Storage storage) {
 
-    Record rec = new Record("k0", "0");
+    Record rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k0");
+    rec.setKey2("0");
     rec.withValue("v1", 100);
     rec.withValue("v2", 200);
     try {
       storage.insert(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Insertion failed unexpectedly");
+      e.printStackTrace();
     }
 
     storage.get("k0");
 
-    rec = new Record("k0", "1");
+    rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k0");
+    rec.setKey2("1");
     rec.withValue("v1", 101);
     rec.withValue("v2", 202);
     try {
       storage.insert(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Insertion failed unexpectedly");
+      e.printStackTrace();
     }
 
     storage.get("k0");
 
-    rec = new Record("k0", "0");
+    rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k0");
+    rec.setKey2("0");
     rec.withValue("v1", 111);
     rec.withValue("v2", 222);
     try {
       storage.insertIfNotExists(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Insertion failed as expected");
     }
 
-    rec = new Record("k1", "0");
+    rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k1");
+    rec.setKey2("0");
     rec.withValue("v1", 100);
     rec.withValue("v2", 200);
     try {
       storage.insertIfNotExists(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Insertion failed unexpectedly");
+      e.printStackTrace();
     }
 
-    rec = new Record("k1", "1");
+    rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k1");
+    rec.setKey2("1");
     rec.withValue("v1", 111);
     rec.withValue("v2", 222);
     try {
       storage.insertIfNotExists(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Insertion failed unexpectedly");
+      e.printStackTrace();
     }
 
     storage.get("k0");
     storage.get("k1");
 
-    rec = new Record("k0", "2");
+    rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k0");
+    rec.setKey2("2");
     rec.withValue("v1", 111);
     rec.withValue("v2", 222);
     try {
       storage.updateIfExists(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Update failed as expected");
     }
 
-    rec = new Record("k0", "0");
+    rec = new Record();
+    rec.setId(UUID.randomUUID().toString());
+    rec.setKey1("k0");
+    rec.setKey2("0");
     rec.withValue("v1", 1111);
     rec.withValue("v2", 2222);
     try {
       storage.updateIfExists(rec);
-    } catch (DocumentClientException e) {
+    } catch (CosmosClientException e) {
       System.err.println("Insertion failed unexpectedly");
+      e.printStackTrace();
     }
 
     storage.get("k0");
