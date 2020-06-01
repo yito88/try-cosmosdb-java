@@ -23,7 +23,7 @@ public class Record {
   }
 
   public void setKey2(String key2) {
-    this.key2 = key1;
+    this.key2 = key2;
   }
 
   public void setValues(Map<String, Integer> values) {
