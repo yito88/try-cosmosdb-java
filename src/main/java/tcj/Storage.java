@@ -1,25 +1,37 @@
 package tcj;
 
-import com.microsoft.azure.documentdb.ConnectionPolicy;
-import com.microsoft.azure.documentdb.ConsistencyLevel;
-import com.microsoft.azure.documentdb.Document;
-import com.microsoft.azure.documentdb.DocumentClient;
-import com.microsoft.azure.documentdb.DocumentClientException;
-import com.microsoft.azure.documentdb.FeedResponse;
-import com.microsoft.azure.documentdb.PartitionKey;
-import com.microsoft.azure.documentdb.RequestOptions;
-import com.microsoft.azure.documentdb.StoredProcedure;
+import com.azure.data.cosmos.ConnectionMode;
+import com.azure.data.cosmos.ConnectionPolicy;
+import com.azure.data.cosmos.ConsistencyLevel;
+import com.azure.data.cosmos.CosmosClient;
+import com.azure.data.cosmos.CosmosClientException;
+import com.azure.data.cosmos.CosmosItemProperties;
+import com.azure.data.cosmos.CosmosStoredProcedureProperties;
+import com.azure.data.cosmos.CosmosStoredProcedureRequestOptions;
+import com.azure.data.cosmos.FeedResponse;
+import com.azure.data.cosmos.PartitionKey;
+import com.azure.data.cosmos.sync.CosmosSyncClient;
+import com.azure.data.cosmos.sync.CosmosSyncContainer;
+import com.azure.data.cosmos.sync.CosmosSyncStoredProcedure;
 import java.net.HttpURLConnection;
+import java.util.Iterator;
+import java.io.IOException;
 
 public class Storage implements AutoCloseable {
-  private String database;
-  private String container;
-  private String storedProcedureDir;
-  private DocumentClient client;
+  private String databaseId;
+  private String containerId;
+  private CosmosSyncClient client;
+  private CosmosSyncContainer container;
 
   public Storage(String host, String masterKey) {
+    ConnectionPolicy connectionPolicy = new ConnectionPolicy();
+    connectionPolicy.connectionMode(ConnectionMode.DIRECT);
     this.client =
-        new DocumentClient(host, masterKey, ConnectionPolicy.GetDefault(), ConsistencyLevel.Strong);
+        CosmosClient.builder()
+            .endpoint(host)
+            .key(masterKey)
+            .consistencyLevel(ConsistencyLevel.STRONG)
+            .buildSyncClient();
   }
 
   public void close() {
@@ -27,99 +39,74 @@ public class Storage implements AutoCloseable {
   }
 
   public void with(String database, String container) {
-    this.database = database;
-    this.container = container;
+    this.databaseId = database;
+    this.containerId = container;
+    this.container = client.getDatabase(databaseId).getContainer(containerId);
   }
 
   public String getDatabaseLink() {
-    return String.format("/dbs/%s", database);
+    return String.format("/dbs/%s", databaseId);
   }
 
   public String getContainerLink() {
-    return String.format("%s/colls/%s", getDatabaseLink(), container);
+    return String.format("%s/colls/%s", getDatabaseLink(), containerId);
   }
 
-  public void registerStoredProcedure(StoredProcedure sp) {
+  public void registerStoredProcedure(CosmosStoredProcedureProperties sp) {
     try {
-      client.createStoredProcedure(getContainerLink(), sp, new RequestOptions());
-    } catch (DocumentClientException e) {
+      container.getScripts().createStoredProcedure(sp);
+    } catch (CosmosClientException e) {
       throw new RuntimeException("Failed to register stored procedures", e);
     }
   }
 
-  public boolean isRegistered(StoredProcedure sp) {
-    String sprocLink = String.format("%s/sprocs/%s", getContainerLink(), sp.getId());
-
-    try {
-      StoredProcedure result = client.readStoredProcedure(sprocLink, null).getResource();
-    } catch (DocumentClientException e) {
-      if (e.getStatusCode() == HttpURLConnection.HTTP_NOT_FOUND) {
-        return false;
-      }
-      throw new RuntimeException("Failed to check a stored procedure", e);
+  public boolean isRegistered(String id) {
+    CosmosSyncStoredProcedure sp = container.getScripts().getStoredProcedure(id);
+    if (sp == null) {
+      return false;
     }
 
     return true;
   }
 
-  public void insert(Record rec) throws DocumentClientException {
-    try {
-      client.createDocument(getContainerLink(), rec, new RequestOptions(), true);
-    } catch (DocumentClientException e) {
-      //System.err.println("Insertion failed");
-      throw e;
-    }
+  public void insert(Record rec) throws CosmosClientException {
+    container.createItem(rec);
   }
 
-  public void insertWithStoredProcedure(Record rec) throws DocumentClientException {
-    String sprocLink = String.format("%s/sprocs/putWithoutRead.js", getContainerLink());
-
-    RequestOptions requestOptions = new RequestOptions();
-    requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
-
-    try {
-      client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
-    } catch (DocumentClientException e) {
-      //System.err.println("Insertion failed");
-      throw e;
-    }
+  public void insertWithStoredProcedure(Record rec) throws CosmosClientException {
+    upsertWithStoredProcedure("putWithoutRead.js", rec);
   }
 
-  public void insertIfNotExists(Record rec) throws DocumentClientException {
-    String sprocLink = String.format("%s/sprocs/putIfNotExists.js", getContainerLink());
-
-    RequestOptions requestOptions = new RequestOptions();
-    requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
-
-    try {
-      client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
-    } catch (DocumentClientException e) {
-      //System.err.println("Insertion failed");
-      throw e;
-    }
+  public void insertIfNotExists(Record rec) throws CosmosClientException {
+    upsertWithStoredProcedure("putIfNotExists.js", rec);
   }
 
-  public void updateIfExists(Record rec) throws DocumentClientException {
-    String sprocLink = String.format("%s/sprocs/putIfExists.js", getContainerLink());
+  public void updateIfExists(Record rec) throws CosmosClientException {
+    upsertWithStoredProcedure("putIfExists.js", rec);
+  }
 
-    RequestOptions requestOptions = new RequestOptions();
-    requestOptions.setPartitionKey(new PartitionKey(rec.getKey1()));
+  private void upsertWithStoredProcedure(String id, Record rec) throws CosmosClientException {
+    CosmosSyncStoredProcedure sp = container.getScripts().getStoredProcedure(id);
+    CosmosStoredProcedureRequestOptions requestOptions =
+        new CosmosStoredProcedureRequestOptions().partitionKey(new PartitionKey(rec.getKey1()));
 
-    try {
-      client.executeStoredProcedure(sprocLink, requestOptions, new Object[] {rec});
-    } catch (DocumentClientException e) {
-      //System.err.println("Update failed");
-      throw e;
-    }
+    sp.execute(new Record[] {rec}, requestOptions);
   }
 
   public void get(String key) {
     String query =
         String.format("SELECT r.key1, r.key2, r.values FROM Record r WHERE r.key1 = '%s'", key);
-    FeedResponse<Document> results = client.queryDocuments(getContainerLink(), query, null);
+    Iterator<FeedResponse<CosmosItemProperties>> results = container.queryItems(query, null);
 
-    for (Document doc : results.getQueryIterable()) {
-      System.out.println(String.format("\tRead %s", doc));
-    }
+    results.forEachRemaining(
+        rs -> {
+          for (CosmosItemProperties r : rs.results()) {
+            try {
+              System.out.println(String.format("\tRead %s", r));
+            } catch (Exception e) {
+              System.err.println("Failed to deserialize: " + e.getMessage());
+            }
+          }
+        });
   }
 }

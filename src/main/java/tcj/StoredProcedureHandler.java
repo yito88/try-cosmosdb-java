@@ -1,6 +1,6 @@
 package tcj;
 
-import com.microsoft.azure.documentdb.StoredProcedure;
+import com.azure.data.cosmos.CosmosStoredProcedureProperties;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -21,9 +21,9 @@ public class StoredProcedureHandler {
           .forEach(
               p -> {
                 String name = p.toFile().getName();
-                StoredProcedure sp = makeStoredProcedure(name, p);
+                CosmosStoredProcedureProperties sp = makeStoredProcedure(name, p);
 
-                if (storage.isRegistered(sp)) {
+                if (storage.isRegistered(name)) {
                   return;
                 }
 
@@ -34,16 +34,10 @@ public class StoredProcedureHandler {
     }
   }
 
-  private StoredProcedure makeStoredProcedure(String spName, Path path) {
+  private CosmosStoredProcedureProperties makeStoredProcedure(String spName, Path path) {
     try {
-      return new StoredProcedure(
-          "{"
-              + "  'id':'"
-              + spName
-              + "',"
-              + "  'body':'"
-              + Files.lines(path, Charset.forName("UTF-8")).collect(Collectors.joining())
-              + "'}");
+      return new CosmosStoredProcedureProperties(
+          spName, Files.lines(path, Charset.forName("UTF-8")).collect(Collectors.joining()));
     } catch (IOException e) {
       throw new RuntimeException("Stored procedure is not found", e);
     }

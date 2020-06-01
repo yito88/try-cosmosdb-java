@@ -21,7 +21,7 @@ repositories {
 }
 
 dependencies {
-    implementation group: 'com.microsoft.azure', name: 'azure-documentdb', version: '2.4.7'
+    implementation group: 'com.microsoft.azure', name: 'azure-cosmos', version: '3.7.3'
 }
 
 application {
